@@ -1,0 +1,54 @@
+---
+- name: Execure Config Files Scanning 
+  hosts: all 
+  gather_facts: True 
+  remote_user: root
+  vars:    
+   check_path: ap
+   changelogfile:  "/data/changelog-{{ check_path}}-{{ ansible_date_time.date }}"
+
+  tasks:
+   - name: check template source
+     find:
+       paths: "{{ check_path }}"
+       file_type: file
+       recurse: yes
+     register: path_files
+     delegate_to: localhost
+   - name: clean up log file
+     file:
+       path: "{{ changelogfile }}"
+       state: absent
+     delegate_to: localhost
+   - name: check template diff 
+     check_mode: yes 
+     template:
+       src: "{{ item.path }}"
+       dest: "{{ item.path|replace( check_path,'' ) }}"
+     with_items:
+       - "{{ path_files.files }}"
+     register: rs
+     notify: record_change
+   - name: flush handles
+     meta: flush_handlers
+   - name: ready change log html template
+     shell: echo "<pre>" > "{{ changelogfile }}".html
+     run_once: yes
+     delegate_to: localhost
+   - name: check chage log exist
+     stat:
+       path: "{{ changelogfile }}"
+     register: changelogstat
+     delegate_to: localhost
+   - name: well_format
+     shell: cat "{{ changelogfile }}" |sort >> "{{ changelogfile }}".html; rm -rf  "{{ changelogfile }}"
+     when: changelogstat.stat.exists
+     delegate_to: localhost
+    
+  handlers:
+    - name: record_change
+      shell: echo "{{ inventory_hostname }}":"{{ item.item.path|replace( check_path,'') }}"  >> "{{ changelogfile }}"
+      when: item is changed
+      with_items:
+        - "{{ rs.results }}"
+      delegate_to: localhost

@@ -1,0 +1,49 @@
+---
+- name: Execure SCAP scanning 
+  hosts: all 
+  gather_facts: True 
+  vars:    
+    scap_profile: pci-dss
+    rsfilename: "{{ inventory_hostname }}-{{ scap_profile }}-{{ ansible_date_time.date }}-result.html"
+    rsfile: "/tmp/{{ rsfilename }}"
+    scap_pkgs:
+       - openscap
+       - openscap-scanner
+       - openscap-utils
+       - scap-security-guide
+    scap_report_store: "/data/"
+  remote_user: root
+
+  tasks:
+  - name: ready scap replated packages 
+    yum:
+      name: "{{ item }}"
+      state: latest 
+    with_items:
+      - "{{ scap_pkgs }}" 
+  - name: scanning RHEL7
+    command: oscap xccdf eval --report "{{ rsfile }}" --profile "{{ scap_profile }}" /usr/share/xml/scap/ssg/content/ssg-rhel7-xccdf.xml
+    ignore_errors: True 
+    when: ansible_distribution == 'RedHat' and ansible_distribution_major_version == '7'
+  - name: scanning RHEL6
+    command: oscap xccdf eval --report "{{ rsfile }}" --profile "{{ scap_profile }}" /usr/share/xml/scap/ssg/content/ssg-rhel6-xccdf.xml
+    ignore_errors: True 
+    when: ansible_distribution == 'RedHat' and ansible_distribution_major_version == '6'
+  - name: check result
+    stat:
+      path: "{{ rsfile }}"
+    register: rs
+  - name: fail if no result!
+    fail:
+      msg: "No result!!"
+    when: rs.stat.exists == False 
+  - name: fetch file to host (awx need permission to write to /data)
+    fetch:
+      flat: no 
+      src: "{{ rsfile }}"
+      dest: "{{ scap_report_store }}"     
+  - name: clean up
+    file:
+      path: "{{ rsfile }}"
+      state: absent
+
